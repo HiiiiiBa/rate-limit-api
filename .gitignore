@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+frontend/node_modules/
+node_modules/
+
+# Ne pas ignorer static/dashboard : nécessaire pour /dashboard/ en prod si pas de build CI

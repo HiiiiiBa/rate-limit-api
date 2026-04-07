@@ -1,0 +1,14 @@
+# Railway (Nixpacks) : installe Node pour builder le dashboard, puis Python.
+# Si le build échoue, ajoute manuellement le dossier static/dashboard au git (voir message utilisateur).
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt",
+  "cd frontend && npm ci",
+]
+
+[phases.build]
+cmds = ["cd frontend && npm run build"]
