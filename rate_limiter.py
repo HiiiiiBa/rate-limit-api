@@ -1,5 +1,6 @@
 import os
 import re
+import logging
 import threading
 import time
 
@@ -10,6 +11,8 @@ from fastapi import HTTPException, Request
 import config_store
 
 load_dotenv()
+
+logger = logging.getLogger("rate_limit")
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 
@@ -60,13 +63,33 @@ def _redis_unavailable_message() -> str:
     )
 
 
+def _first_forwarded_for(headers) -> str | None:
+    """
+    Retourne la 1ère IP du header X-Forwarded-For si présent.
+    Format typique: "client, proxy1, proxy2".
+    """
+    xff = headers.get("x-forwarded-for") or headers.get("X-Forwarded-For")
+    if not xff:
+        return None
+    first = str(xff).split(",")[0].strip()
+    return first or None
+
+
+def get_client_ip(request: Request) -> str:
+    # En cloud (Railway / proxy), request.client.host peut être l'IP du proxy.
+    forwarded = _first_forwarded_for(request.headers)
+    if forwarded:
+        return forwarded
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
 def get_client_key(request: Request) -> str:
     user = request.headers.get("user")
     if user:
         return user
-    if request.client:
-        return request.client.host
-    return "unknown"
+    return get_client_ip(request)
 
 
 def _storage_key(client_key: str) -> str:
@@ -127,7 +150,7 @@ def check_rate_limit(request: Request) -> tuple[str, int, int]:
                 raise HTTPException(status_code=429, detail="Trop de requêtes")
             arr.append(now)
             new_count = len(arr)
-        print(f"User/IP: {client_key} - Requests: {new_count} (memory)")
+        logger.info("allowed client=%s count=%s limit=%s window=%ss backend=memory", client_key, new_count, limit, window)
         return client_key, new_count, limit
 
     assert r is not None
@@ -135,6 +158,7 @@ def check_rate_limit(request: Request) -> tuple[str, int, int]:
         r.zremrangebyscore(key, 0, now - window)
         count = r.zcard(key)
         if count >= limit:
+            logger.warning("blocked client=%s count=%s limit=%s window=%ss", client_key, count, limit, window)
             raise HTTPException(status_code=429, detail="Trop de requêtes")
 
         r.zadd(key, {str(now): now})
@@ -142,10 +166,11 @@ def check_rate_limit(request: Request) -> tuple[str, int, int]:
     except HTTPException:
         raise
     except redis.RedisError as e:
+        logger.exception("redis_error client=%s", client_key)
         raise HTTPException(status_code=503, detail=_redis_unavailable_message()) from e
 
     new_count = count + 1
-    print(f"User/IP: {client_key} - Requests: {new_count}")
+    logger.info("allowed client=%s count=%s limit=%s window=%ss", client_key, new_count, limit, window)
     return client_key, new_count, limit
 
 

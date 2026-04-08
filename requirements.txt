@@ -1,4 +1,6 @@
-fastapi
-uvicorn[standard]
-redis
-python-dotenv
+fastapi==0.118.1
+uvicorn[standard]==0.37.0
+redis==7.4.0
+python-dotenv==1.1.0
+pytest==8.3.4
+httpx==0.28.1

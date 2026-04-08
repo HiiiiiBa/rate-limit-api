@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from typing import Any
 
@@ -15,6 +16,7 @@ import metrics
 from rate_limiter import get_window_usage
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+logger = logging.getLogger("dashboard")
 
 
 class LimitUpdate(BaseModel):
@@ -124,6 +126,7 @@ def patch_config(body: LimitUpdate) -> dict[str, Any]:
 @router.websocket("/ws")
 async def dashboard_ws(ws: WebSocket) -> None:
     await broadcaster.connect(ws)
+    logger.info("ws_connected client=%s", getattr(ws.client, "host", "unknown"))
     try:
         await ws.send_text(json.dumps(build_full_snapshot()))
         while True:
@@ -132,6 +135,7 @@ async def dashboard_ws(ws: WebSocket) -> None:
         pass
     finally:
         await broadcaster.disconnect(ws)
+        logger.info("ws_disconnected client=%s", getattr(ws.client, "host", "unknown"))
 
 
 async def broadcast_loop() -> None:

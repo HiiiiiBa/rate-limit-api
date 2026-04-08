@@ -9,6 +9,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
+*.log
 
 frontend/node_modules/
 node_modules/
