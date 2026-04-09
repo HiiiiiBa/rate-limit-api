@@ -46,12 +46,28 @@ export default function App() {
   useEffect(() => {
     let ws;
     let alive = true;
+    let pingTimer;
     const connect = () => {
       ws = new WebSocket(wsUrl());
-      ws.onopen = () => alive && setWsConnected(true);
+      ws.onopen = () => {
+        if (!alive) return;
+        setWsConnected(true);
+        // Keep-alive: certains reverse proxies coupent les WS inactifs
+        clearInterval(pingTimer);
+        pingTimer = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            try {
+              ws.send("ping");
+            } catch {
+              /* ignore */
+            }
+          }
+        }, 15000);
+      };
       ws.onclose = () => {
         if (!alive) return;
         setWsConnected(false);
+        clearInterval(pingTimer);
         setTimeout(connect, 2500);
       };
       ws.onmessage = (ev) => {
@@ -67,11 +83,12 @@ export default function App() {
     connect();
     return () => {
       alive = false;
+      clearInterval(pingTimer);
       ws?.close();
     };
   }, []);
 
-  const loadTraffic = useCallback(async (hours) => {
+  const loadTraffic = useCallback(async (hours, signal) => {
     const r = await fetch(`/api/dashboard/traffic?hours=${hours}`);
     if (!r.ok) return;
     const data = await r.json();
@@ -79,17 +96,36 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadTraffic(trafficHours);
+    const ac = new AbortController();
+    loadTraffic(trafficHours, ac.signal);
   }, [trafficHours, loadTraffic]);
 
-  useEffect(() => {
-    (async () => {
-      const r = await fetch("/api/dashboard/logs?limit=100");
-      if (!r.ok) return;
-      const data = await r.json();
-      setLogs(data.items || []);
-    })();
+  const loadLogs = useCallback(async (signal) => {
+    const r = await fetch("/api/dashboard/logs?limit=100", { signal });
+    if (!r.ok) return;
+    const data = await r.json();
+    setLogs(data.items || []);
   }, []);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    loadLogs(ac.signal);
+    return () => ac.abort();
+  }, [loadLogs]);
+
+  // Rafraîchissement automatique (quasi temps réel) pour trafic + logs
+  useEffect(() => {
+    const ac = new AbortController();
+    const tick = () => {
+      loadTraffic(trafficHours, ac.signal);
+      loadLogs(ac.signal);
+    };
+    const id = setInterval(tick, 5000);
+    return () => {
+      clearInterval(id);
+      ac.abort();
+    };
+  }, [trafficHours, loadTraffic, loadLogs]);
 
   useEffect(() => {
     if (snapshot?.config) {
